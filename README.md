@@ -1,23 +1,30 @@
-# custom-digest
+# myfollows-skill
 
-A personalized AI digest skill for Claude Code — follow exactly who YOU want.
+A personalized multi-platform digest skill for Claude Code — follow exactly who YOU want, across the platforms YOU care about.
 
-Unlike [follow-builders](https://github.com/zarazhangrui/follow-builders) which tracks a curated central list, **custom-digest lets you define your own KOL list** on X/Twitter and your own podcast RSS feeds.
+## Supported Platforms
+
+| Platform | Source | API Key? |
+|---|---|---|
+| 𝕏 X / Twitter | nitter RSS | ❌ None needed |
+| ▶️ YouTube | YouTube native RSS | ❌ None needed |
+| 💬 WeChat 微信公众号 | RSSHub | ❌ Uses public instance |
+| 📖 Xiaohongshu 小红书 | RSSHub | ❌ Uses public instance |
 
 ## Features
 
-- ✅ **Custom Twitter/X KOL list** — follow any handles you choose
-- ✅ **Custom podcast RSS feeds** — subscribe to any podcast
-- ✅ **No API key required** for content fetching (uses nitter RSS for tweets)
-- ✅ **Bilingual output** — English, Chinese, or side-by-side
+- ✅ **100% user-defined follow list** — no central curated list
+- ✅ **4 platforms** — Twitter, YouTube, WeChat, Xiaohongshu
+- ✅ **No API keys** for content fetching
+- ✅ **Bilingual output** — English, Chinese, or interleaved
 - ✅ **Telegram / Email / on-demand** delivery
 - ✅ **Add/remove sources anytime** via natural language
 
 ## Installation
 
 ```bash
-git clone https://github.com/jasonfu828/custom-digest.git ~/.claude/skills/custom-digest
-cd ~/.claude/skills/custom-digest/scripts && npm install
+git clone https://github.com/Jasonfu828/myfollows-skill.git ~/.claude/skills/myfollows-skill
+cd ~/.claude/skills/myfollows-skill/scripts && npm install --ignore-scripts
 ```
 
 ## Usage
@@ -25,23 +32,18 @@ cd ~/.claude/skills/custom-digest/scripts && npm install
 In Claude Code, just say:
 
 - **"日报"** or **"generate my digest"** — get today's digest
-- **"Add @sama to my list"** — add a Twitter handle
-- **"Remove the No Priors podcast"** — remove a source
-- **"Switch to weekly digests"** — change frequency
-- **"Show my sources"** — see current KOL list
+- **"Add @sama on Twitter"** — add a Twitter account
+- **"Add YouTube channel Andrej Karpathy, channel ID UCbmNph6atAoGfqLoCL_duAg"**
+- **"Add WeChat account 机器之心 RSS https://rsshub.app/wechat/mp/article/almosthuman2014"**
+- **"Add Xiaohongshu user ID 5e0234560000000001003c65"**
+- **"Remove @levie from my list"**
+- **"Show who I'm following"**
 
-First run will guide you through setup (KOL list, podcasts, delivery method, language).
-
-## How It Works
-
-1. **Tweets**: fetched via [nitter](https://github.com/zedeus/nitter) public RSS instances — no Twitter API key needed
-2. **Podcasts**: fetched via standard RSS feeds
-3. **Remixing**: Claude reads the raw content and writes a digestible summary
-4. **Delivery**: Telegram bot, email (via Resend), or terminal output
+First run will guide you through full setup.
 
 ## Config
 
-Stored at `~/.custom-digest/config.json`:
+Stored at `~/.myfollows/config.json`:
 
 ```json
 {
@@ -49,9 +51,17 @@ Stored at `~/.custom-digest/config.json`:
   "timezone": "Asia/Shanghai",
   "frequency": "daily",
   "deliveryTime": "09:00",
-  "xHandles": ["sama", "karpathy", "levie"],
-  "podcasts": [
-    { "name": "No Priors", "rssUrl": "https://feeds.megaphone.fm/nopriors" }
+  "twitter": [
+    { "handle": "sama", "name": "Sam Altman" }
+  ],
+  "youtube": [
+    { "name": "Andrej Karpathy", "channelId": "UCbmNph6atAoGfqLoCL_duAg" }
+  ],
+  "wechat": [
+    { "name": "机器之心", "rssUrl": "https://rsshub.app/wechat/mp/article/almosthuman2014" }
+  ],
+  "xiaohongshu": [
+    { "name": "Creator Name", "userId": "5e0234560000000001003c65" }
   ],
   "delivery": {
     "method": "telegram",
@@ -60,14 +70,35 @@ Stored at `~/.custom-digest/config.json`:
 }
 ```
 
-API keys go in `~/.custom-digest/.env`:
+Secrets at `~/.myfollows/.env`:
 ```
 TELEGRAM_BOT_TOKEN=your_token_here
 ```
 
+## How to Find IDs
+
+**YouTube Channel ID:**
+1. Go to the channel page
+2. View page source → search for `"channelId"`
+3. Or use: https://commentpicker.com/youtube-channel-id.php
+
+**WeChat Account RSS (via RSSHub):**
+1. Find the WeChat ID (微信号) on the account's profile
+2. URL: `https://rsshub.app/wechat/mp/article/{wechat_id}`
+3. Or search on Sogou: https://weixin.sogou.com
+
+**Xiaohongshu User ID:**
+1. Go to profile on https://www.xiaohongshu.com
+2. User ID is in the URL: `xiaohongshu.com/user/profile/{userId}`
+
+## Note on RSSHub
+
+Public RSSHub (`rsshub.app`) may have rate limits or occasional downtime.
+For reliable heavy usage, self-host: https://docs.rsshub.app/deploy/
+
 ## Inspired By
 
-[follow-builders](https://github.com/zarazhangrui/follow-builders) by [@zarazhangrui](https://github.com/zarazhangrui) — the original AI builders digest skill.
+[follow-builders](https://github.com/zarazhangrui/follow-builders) by [@zarazhangrui](https://github.com/zarazhangrui)
 
 ## License
 

@@ -10,8 +10,8 @@
 //   node deliver.js --message "digest text"
 //   node deliver.js --file /path/to/digest.txt
 //
-// Config: ~/.custom-digest/config.json
-// Secrets: ~/.custom-digest/.env
+// Config: ~/.myfollows/config.json
+// Secrets: ~/.myfollows/.env
 // ============================================================================
 
 import { readFile } from 'fs/promises';
@@ -20,7 +20,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import { config as loadEnv } from 'dotenv';
 
-const USER_DIR = join(homedir(), '.custom-digest');
+const USER_DIR = join(homedir(), '.myfollows');
 const CONFIG_PATH = join(USER_DIR, 'config.json');
 const ENV_PATH = join(USER_DIR, '.env');
 

@@ -1,24 +1,28 @@
 #!/usr/bin/env node
 
 // ============================================================================
-// Custom Digest — Prepare Script
+// MyFollows — Prepare Script
 // ============================================================================
-// Fetches tweets from nitter RSS (no API key needed) and podcast episodes
-// from user-defined RSS feeds. Outputs a single JSON blob for the agent to remix.
+// Fetches content from all configured platforms and outputs a JSON blob.
+//
+// Platforms:
+//   - X/Twitter    : nitter RSS (no API key)
+//   - YouTube      : YouTube native RSS (no API key, uses channel ID)
+//   - WeChat (微信) : RSSHub RSS URL (user-provided)
+//   - Xiaohongshu  : RSSHub RSS URL (built from user ID)
 //
 // Usage: node prepare-digest.js
 // Output: JSON to stdout
 // ============================================================================
 
-import { readFile, mkdir } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
-const USER_DIR = join(homedir(), '.custom-digest');
+const USER_DIR = join(homedir(), '.myfollows');
 const CONFIG_PATH = join(USER_DIR, 'config.json');
 
-// Nitter instances to try in order (public, no API key needed)
 const NITTER_INSTANCES = [
   'https://nitter.privacydev.net',
   'https://nitter.cz',
@@ -26,72 +30,19 @@ const NITTER_INSTANCES = [
   'https://nitter.lunar.icu',
 ];
 
-// How many tweets to fetch per user
-const TWEETS_PER_USER = 5;
-
-// How many podcast episodes to fetch per feed
-const EPISODES_PER_FEED = 1;
+const RSSHUB_BASE = 'https://rsshub.app';
+const ITEMS_PER_SOURCE = 5;
 
 // -- Config ------------------------------------------------------------------
 
 async function loadConfig() {
   if (!existsSync(CONFIG_PATH)) {
-    return { xHandles: [], podcasts: [], language: 'bilingual', delivery: { method: 'stdout' } };
+    return { twitter: [], youtube: [], wechat: [], xiaohongshu: [], language: 'bilingual', delivery: { method: 'stdout' } };
   }
   return JSON.parse(await readFile(CONFIG_PATH, 'utf-8'));
 }
 
-// -- XML Parsing (no dependencies) -------------------------------------------
-
-function extractTag(xml, tag) {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
-  const m = xml.match(re);
-  if (!m) return '';
-  return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, '').trim();
-}
-
-function extractAllTags(xml, tag) {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
-  const results = [];
-  let m;
-  while ((m = re.exec(xml)) !== null) {
-    results.push(m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim());
-  }
-  return results;
-}
-
-function extractItems(xml) {
-  const re = /<item>([\s\S]*?)<\/item>/gi;
-  const items = [];
-  let m;
-  while ((m = re.exec(xml)) !== null) {
-    items.push(m[1]);
-  }
-  return items;
-}
-
-function parseDate(str) {
-  try {
-    return new Date(str).toISOString();
-  } catch {
-    return null;
-  }
-}
-
-function stripHtml(html) {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .trim();
-}
-
-// -- Fetch with timeout ------------------------------------------------------
+// -- Fetch helpers -----------------------------------------------------------
 
 async function fetchWithTimeout(url, timeoutMs = 10000) {
   const controller = new AbortController();
@@ -110,134 +61,171 @@ async function fetchWithTimeout(url, timeoutMs = 10000) {
   }
 }
 
-// -- Fetch Tweets via Nitter RSS ---------------------------------------------
+// -- XML helpers -------------------------------------------------------------
 
-async function fetchTweetsForHandle(handle) {
+function extractTag(xml, tag) {
+  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
+  const m = xml.match(re);
+  if (!m) return '';
+  return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, '').trim();
+}
+
+function extractAttr(xml, tag, attr) {
+  const re = new RegExp(`<${tag}[^>]*${attr}="([^"]*)"`, 'i');
+  const m = xml.match(re);
+  return m ? m[1] : '';
+}
+
+function extractItems(xml) {
+  const re = /<(?:item|entry)>([\s\S]*?)<\/(?:item|entry)>/gi;
+  const items = [];
+  let m;
+  while ((m = re.exec(xml)) !== null) items.push(m[1]);
+  return items;
+}
+
+function stripHtml(html) {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
+function parseDate(str) {
+  try { return new Date(str).toISOString(); } catch { return null; }
+}
+
+// -- X / Twitter (nitter RSS) ------------------------------------------------
+
+async function fetchTwitter(account) {
   for (const instance of NITTER_INSTANCES) {
     try {
-      const url = `${instance}/${handle}/rss`;
-      const xml = await fetchWithTimeout(url, 8000);
-
-      if (!xml.includes('<item>')) continue;
-
-      // Extract channel-level bio from description
+      const xml = await fetchWithTimeout(`${instance}/${account.handle}/rss`, 8000);
+      if (!xml.includes('<item>') && !xml.includes('<entry>')) continue;
       const channelDesc = extractTag(xml, 'description');
-
-      const items = extractItems(xml).slice(0, TWEETS_PER_USER);
+      const items = extractItems(xml).slice(0, ITEMS_PER_SOURCE);
       const tweets = items.map(item => {
         const title = stripHtml(extractTag(item, 'title'));
         const link = extractTag(item, 'link');
-        const pubDate = parseDate(extractTag(item, 'pubDate'));
         const desc = stripHtml(extractTag(item, 'description'));
-
-        // Nitter puts the tweet text in the description; title is often a truncation
-        const text = desc.length > title.length ? desc : title;
-
         return {
-          text: text.slice(0, 500),
+          text: (desc.length > title.length ? desc : title).slice(0, 500),
           url: link,
-          createdAt: pubDate,
+          createdAt: parseDate(extractTag(item, 'pubDate')),
         };
       }).filter(t => t.url && t.text);
-
       if (tweets.length === 0) continue;
-
       return {
-        source: 'x',
-        handle,
-        name: handle, // will be enriched by the agent using bio
+        platform: 'twitter',
+        handle: account.handle,
+        name: account.name || account.handle,
         bio: channelDesc.replace(/^RSS feed for .+? on nitter\./i, '').trim(),
         tweets,
-        fetchedFrom: instance,
       };
-    } catch {
-      // Try next instance
-    }
+    } catch { /* try next instance */ }
   }
-  return null; // all instances failed
+  return null;
 }
 
-async function fetchAllTweets(handles) {
-  const results = await Promise.allSettled(
-    handles.map(h => fetchTweetsForHandle(h))
-  );
-  return results
-    .filter(r => r.status === 'fulfilled' && r.value !== null)
-    .map(r => r.value);
-}
+// -- YouTube (native RSS, no API key) ----------------------------------------
 
-// -- Fetch Podcasts via RSS --------------------------------------------------
-
-async function fetchPodcastEpisodes(podcast) {
+async function fetchYouTube(channel) {
   try {
-    const xml = await fetchWithTimeout(podcast.rssUrl, 10000);
-    const items = extractItems(xml).slice(0, EPISODES_PER_FEED);
-
-    return items.map(item => {
+    const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel.channelId}`;
+    const xml = await fetchWithTimeout(url, 10000);
+    const items = extractItems(xml).slice(0, ITEMS_PER_SOURCE);
+    const videos = items.map(item => {
       const title = stripHtml(extractTag(item, 'title'));
-      const link = extractTag(item, 'link') || extractTag(item, 'enclosure url') || '';
-      const pubDate = parseDate(extractTag(item, 'pubDate'));
-      const description = stripHtml(extractTag(item, 'description') || extractTag(item, 'summary') || '');
-      const duration = extractTag(item, 'itunes:duration') || '';
-
-      // Try to get a good description (prefer content:encoded)
-      const contentEncoded = extractTag(item, 'content:encoded');
-      const summary = contentEncoded ? stripHtml(contentEncoded).slice(0, 3000) : description.slice(0, 3000);
-
-      return {
-        source: 'podcast',
-        name: podcast.name,
-        title,
-        url: link,
-        publishedAt: pubDate,
-        duration,
-        description: summary,
-      };
-    }).filter(e => e.title);
-  } catch (e) {
-    return [];
+      let link = extractAttr(item, 'link', 'href');
+      if (!link) link = extractTag(item, 'link');
+      const published = parseDate(extractTag(item, 'published') || extractTag(item, 'pubDate'));
+      const description = stripHtml(
+        extractTag(item, 'media:description') || extractTag(item, 'summary') || extractTag(item, 'description')
+      ).slice(0, 2000);
+      return { title, url: link, publishedAt: published, description };
+    }).filter(v => v.title && v.url);
+    return { platform: 'youtube', name: channel.name, channelId: channel.channelId, videos };
+  } catch {
+    return null;
   }
 }
 
-async function fetchAllPodcasts(podcasts) {
-  const results = await Promise.allSettled(
-    podcasts.map(p => fetchPodcastEpisodes(p))
-  );
-  const episodes = [];
-  for (const r of results) {
-    if (r.status === 'fulfilled') episodes.push(...r.value);
+// -- WeChat (via RSSHub) -----------------------------------------------------
+
+async function fetchWeChat(account) {
+  try {
+    const xml = await fetchWithTimeout(account.rssUrl, 12000);
+    const items = extractItems(xml).slice(0, ITEMS_PER_SOURCE);
+    const articles = items.map(item => {
+      const title = stripHtml(extractTag(item, 'title'));
+      const link = extractTag(item, 'link');
+      const published = parseDate(extractTag(item, 'pubDate') || extractTag(item, 'published'));
+      const content = stripHtml(
+        extractTag(item, 'content:encoded') || extractTag(item, 'description') || extractTag(item, 'summary')
+      ).slice(0, 3000);
+      return { title, url: link, publishedAt: published, content };
+    }).filter(a => a.title);
+    return { platform: 'wechat', name: account.name, articles };
+  } catch {
+    return null;
   }
-  return episodes;
+}
+
+// -- Xiaohongshu (via RSSHub) ------------------------------------------------
+
+async function fetchXiaohongshu(creator) {
+  try {
+    const rssUrl = creator.rssUrl || `${RSSHUB_BASE}/xiaohongshu/user/${creator.userId}`;
+    const xml = await fetchWithTimeout(rssUrl, 12000);
+    const items = extractItems(xml).slice(0, ITEMS_PER_SOURCE);
+    const posts = items.map(item => {
+      const title = stripHtml(extractTag(item, 'title'));
+      const link = extractTag(item, 'link');
+      const published = parseDate(extractTag(item, 'pubDate') || extractTag(item, 'published'));
+      const content = stripHtml(
+        extractTag(item, 'description') || extractTag(item, 'summary')
+      ).slice(0, 1000);
+      return { title, url: link, publishedAt: published, content };
+    }).filter(p => p.title);
+    return { platform: 'xiaohongshu', name: creator.name, posts };
+  } catch {
+    return null;
+  }
 }
 
 // -- Main --------------------------------------------------------------------
 
 async function main() {
   const config = await loadConfig();
-  const handles = config.xHandles || [];
-  const podcastFeeds = config.podcasts || [];
+  const errors = [];
 
-  if (handles.length === 0 && podcastFeeds.length === 0) {
-    process.stdout.write(JSON.stringify({
-      status: 'error',
-      error: 'No sources configured. Run onboarding to add Twitter handles and podcast feeds.',
-    }));
-    process.exit(1);
-  }
-
-  // Fetch in parallel
-  const [xBuilders, podcastEpisodes] = await Promise.all([
-    fetchAllTweets(handles),
-    fetchAllPodcasts(podcastFeeds),
+  const [twitterResults, youtubeResults, wechatResults, xhsResults] = await Promise.all([
+    Promise.allSettled((config.twitter || []).map(a => fetchTwitter(a))),
+    Promise.allSettled((config.youtube || []).map(c => fetchYouTube(c))),
+    Promise.allSettled((config.wechat || []).map(a => fetchWeChat(a))),
+    Promise.allSettled((config.xiaohongshu || []).map(c => fetchXiaohongshu(c))),
   ]);
 
-  const errors = [];
-  const fetchedHandles = new Set(xBuilders.map(b => b.handle));
-  for (const h of handles) {
-    if (!fetchedHandles.has(h)) {
-      errors.push(`Could not fetch tweets for @${h} (all nitter instances failed)`);
-    }
+  const twitter = twitterResults.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+  const youtube = youtubeResults.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+  const wechat = wechatResults.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+  const xiaohongshu = xhsResults.filter(r => r.status === 'fulfilled' && r.value).map(r => r.value);
+
+  const fetchedTwitter = new Set(twitter.map(a => a.handle));
+  for (const a of (config.twitter || [])) {
+    if (!fetchedTwitter.has(a.handle)) errors.push(`Twitter @${a.handle}: all nitter instances failed`);
   }
+  youtubeResults.forEach((r, i) => {
+    if (!r.value) errors.push(`YouTube ${(config.youtube || [])[i]?.name}: fetch failed`);
+  });
+  wechatResults.forEach((r, i) => {
+    if (!r.value) errors.push(`WeChat ${(config.wechat || [])[i]?.name}: fetch failed`);
+  });
+  xhsResults.forEach((r, i) => {
+    if (!r.value) errors.push(`Xiaohongshu ${(config.xiaohongshu || [])[i]?.name}: fetch failed`);
+  });
 
   const output = {
     status: 'ok',
@@ -246,12 +234,15 @@ async function main() {
       language: config.language || 'en',
       delivery: config.delivery || { method: 'stdout' },
     },
-    x: xBuilders,
-    podcasts: podcastEpisodes,
+    twitter,
+    youtube,
+    wechat,
+    xiaohongshu,
     stats: {
-      xBuilders: xBuilders.length,
-      totalTweets: xBuilders.reduce((n, b) => n + b.tweets.length, 0),
-      podcastEpisodes: podcastEpisodes.length,
+      twitter: twitter.length,
+      youtube: youtube.reduce((n, c) => n + c.videos.length, 0),
+      wechat: wechat.reduce((n, a) => n + a.articles.length, 0),
+      xiaohongshu: xiaohongshu.reduce((n, c) => n + c.posts.length, 0),
     },
     errors,
   };
