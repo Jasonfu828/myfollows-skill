@@ -1,0 +1,13 @@
+{
+  "name": "custom-digest-scripts",
+  "version": "1.0.0",
+  "description": "Scripts for Custom Digest skill — fetch tweets via nitter RSS, podcasts via RSS, deliver via Telegram/email/stdout",
+  "type": "module",
+  "scripts": {
+    "prepare": "node prepare-digest.js",
+    "deliver": "node deliver.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.0"
+  }
+}
